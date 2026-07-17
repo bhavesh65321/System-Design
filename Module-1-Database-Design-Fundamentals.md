@@ -446,28 +446,274 @@ Customer (1) ──has──→ (1) Profile
 
 ## Chapter 8: Mini Project - Movie Booking System
 
-### Requirements
-Design a database for a movie ticket booking system:
+Let's apply the complete 6-step database design process to build a real movie booking system.
 
-1. **Customers** can register and book tickets
-2. **Movies** have showtimes at different theaters
-3. **Theaters** have multiple screens with different capacities
-4. **Bookings** contain multiple seats for a specific showtime
-5. **Payments** are recorded for each booking
+---
 
-### Solution
+### Step 1: Understand Requirements
 
-#### Step 1: Identify Entities
-- Customer
-- Movie  
-- Theater
-- Screen
-- Showtime
-- Booking
-- Seat
-- Payment
+**Business Requirements:**
+1. **Customers** can register with email and phone
+2. **Customers** can browse movies and showtimes
+3. **Movies** are shown at different **theaters**
+4. **Theaters** have multiple **screens** with different capacities
+5. **Movies** have multiple **showtimes** on different screens
+6. **Customers** can book tickets for specific showtimes
+7. **Bookings** can include multiple seats
+8. **Payments** are processed for each booking
+9. **Customers** can view their booking history
 
-#### Step 2: Design Tables
+**Data to Store:**
+- Customer information (name, contact details)
+- Movie details (title, genre, duration)
+- Theater and screen information
+- Showtime schedules with pricing
+- Booking details with seat selections
+- Payment transactions
+
+**User Workflows:**
+- Customer registration → Browse movies → Select showtime → Choose seats → Make payment → Get booking confirmation
+
+---
+
+### Step 2: Identify Entities
+
+**Look for nouns in requirements:**
+
+| Requirement | Entity Identified |
+|-------------|-------------------|
+| "**Customers** can register" | Customer |
+| "Browse **movies** and showtimes" | Movie |
+| "Movies are shown at **theaters**" | Theater |
+| "Theaters have **screens**" | Screen |
+| "Movies have **showtimes**" | Showtime |
+| "Can book **tickets**" | Booking |
+| "Multiple **seats**" | Seat (or BookingSeat) |
+| "**Payments** are processed" | Payment |
+
+**Final Entity List:**
+1. **Customer** - People who book tickets
+2. **Movie** - Films being shown
+3. **Theater** - Cinema locations
+4. **Screen** - Individual screens within theaters
+5. **Showtime** - Movie screenings at specific times
+6. **Booking** - Ticket reservations
+7. **BookingSeat** - Individual seat reservations
+8. **Payment** - Financial transactions
+
+---
+
+### Step 3: Identify Attributes
+
+**For each entity, identify properties:**
+
+#### Customer Entity
+```
+Customer
+├── customer_id (Primary Key)
+├── email (Unique, Required)
+├── phone (Unique, Required)
+├── first_name (Required)
+├── last_name (Required)
+├── date_of_birth (Optional)
+└── created_at (Auto-generated)
+```
+
+#### Movie Entity
+```
+Movie
+├── movie_id (Primary Key)
+├── title (Required)
+├── genre (Optional)
+├── duration_minutes (Required)
+├── rating (Optional)
+├── release_date (Optional)
+├── description (Optional)
+└── poster_url (Optional)
+```
+
+#### Theater Entity
+```
+Theater
+├── theater_id (Primary Key)
+├── name (Required)
+├── address (Required)
+├── city (Required)
+├── postal_code (Optional)
+└── phone (Optional)
+```
+
+#### Screen Entity
+```
+Screen
+├── screen_id (Primary Key)
+├── theater_id (Foreign Key)
+├── name (Required) -- "Screen 1", "IMAX"
+├── capacity (Required)
+└── screen_type (Optional) -- "Regular", "IMAX", "4DX"
+```
+
+#### Showtime Entity
+```
+Showtime
+├── showtime_id (Primary Key)
+├── movie_id (Foreign Key)
+├── screen_id (Foreign Key)
+├── show_date (Required)
+├── show_time (Required)
+├── price (Required)
+└── available_seats (Calculated/Derived)
+```
+
+#### Booking Entity
+```
+Booking
+├── booking_id (Primary Key)
+├── customer_id (Foreign Key)
+├── showtime_id (Foreign Key)
+├── booking_date (Auto-generated)
+├── total_amount (Required)
+├── booking_status (Required) -- "confirmed", "cancelled"
+└── booking_reference (Unique code)
+```
+
+#### BookingSeat Entity
+```
+BookingSeat
+├── booking_id (Foreign Key, Composite Primary Key)
+├── seat_number (Required, Composite Primary Key)
+└── seat_price (Required)
+```
+
+#### Payment Entity
+```
+Payment
+├── payment_id (Primary Key)
+├── booking_id (Foreign Key)
+├── amount (Required)
+├── payment_method (Required) -- "card", "upi", "wallet"
+├── payment_date (Auto-generated)
+├── transaction_id (External reference)
+└── status (Required) -- "success", "failed", "pending"
+```
+
+---
+
+### Step 4: Define Relationships
+
+**Analyze how entities connect:**
+
+#### One-to-Many (1:N) Relationships
+1. **Theater → Screens**: One theater has many screens
+2. **Customer → Bookings**: One customer can make many bookings
+3. **Movie → Showtimes**: One movie can have many showtimes
+4. **Screen → Showtimes**: One screen can show many movies
+5. **Showtime → Bookings**: One showtime can have many bookings
+6. **Booking → Payments**: One booking can have multiple payments (partial payments)
+
+#### Many-to-Many (M:N) Relationships
+1. **Booking ↔ Seats**: One booking can have multiple seats, one seat can be booked multiple times (different showtimes)
+   - **Solution**: BookingSeat junction table
+
+#### Relationship Details
+```
+Theater (1) ──has──→ (N) Screen
+Customer (1) ──makes──→ (N) Booking  
+Movie (1) ──shown_in──→ (N) Showtime
+Screen (1) ──hosts──→ (N) Showtime
+Showtime (1) ──receives──→ (N) Booking
+Booking (1) ──includes──→ (N) BookingSeat
+Booking (1) ──processed_by──→ (N) Payment
+```
+
+---
+
+### Step 5: Apply Constraints
+
+**Business rules as database constraints:**
+
+#### Primary Keys
+- Every table must have a unique identifier
+- Use BIGINT AUTO_INCREMENT for all primary keys
+
+#### Foreign Keys
+- Maintain referential integrity
+- Prevent orphaned records
+
+#### Unique Constraints
+- Customer email and phone must be unique
+- No double booking of same seat for same showtime
+- Booking reference codes must be unique
+
+#### Check Constraints
+- Movie duration must be positive
+- Screen capacity must be positive  
+- Showtime price must be positive
+- Booking amount must be positive
+- Show date cannot be in the past
+
+#### Not Null Constraints
+- Essential fields cannot be empty
+- Names, prices, dates are required
+
+#### Default Values
+- Booking status defaults to 'confirmed'
+- Payment status defaults to 'pending'
+- Timestamps auto-generate current time
+
+---
+
+### Step 6: Create ER Diagram
+
+```
+                    ER DIAGRAM: Movie Booking System
+
+┌─────────────┐         ┌─────────────┐         ┌─────────────┐
+│   Theater   │    1:N  │   Screen    │    1:N  │  Showtime   │
+│             │─────────│             │─────────│             │
+│ theater_id  │         │ screen_id   │         │showtime_id  │
+│ name        │         │ theater_id  │         │ movie_id    │
+│ address     │         │ name        │         │ screen_id   │
+│ city        │         │ capacity    │         │ show_date   │
+└─────────────┘         └─────────────┘         │ show_time   │
+                                               │ price       │
+                        ┌─────────────┐         └─────────────┘
+                        │    Movie    │                │
+                        │             │           1:N  │
+                        │ movie_id    │──────────────────
+                        │ title       │
+                        │ genre       │
+                        │ duration    │
+                        │ rating      │
+                        └─────────────┘
+
+┌─────────────┐         ┌─────────────┐         ┌─────────────┐
+│  Customer   │    1:N  │   Booking   │    1:N  │BookingSeat  │
+│             │─────────│             │─────────│             │
+│customer_id  │         │ booking_id  │         │ booking_id  │
+│ email       │         │customer_id  │         │seat_number  │
+│ phone       │         │showtime_id  │         │ seat_price  │
+│ first_name  │         │booking_date │         └─────────────┘
+│ last_name   │         │total_amount │
+└─────────────┘         │ status      │
+                        └─────────────┘
+                               │
+                               │ 1:N
+                               ▼
+                        ┌─────────────┐
+                        │   Payment   │
+                        │             │
+                        │ payment_id  │
+                        │ booking_id  │
+                        │ amount      │
+                        │ method      │
+                        │ status      │
+                        └─────────────┘
+```
+
+---
+
+### Complete Database Implementation
 
 ```sql
 -- Customers
@@ -550,6 +796,188 @@ CREATE TABLE payments (
     status ENUM('success', 'failed', 'pending') DEFAULT 'pending',
     FOREIGN KEY (booking_id) REFERENCES bookings(booking_id)
 );
+```
+
+### Complete Database Implementation
+
+**Now let's convert our design into SQL tables:**
+
+```sql
+-- Step 1: Create Theater table
+CREATE TABLE theaters (
+    theater_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    address VARCHAR(300) NOT NULL,
+    city VARCHAR(100) NOT NULL,
+    postal_code VARCHAR(20),
+    phone VARCHAR(15),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Step 2: Create Screen table (depends on Theater)
+CREATE TABLE screens (
+    screen_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    theater_id BIGINT NOT NULL,
+    name VARCHAR(50) NOT NULL,
+    capacity INT NOT NULL CHECK (capacity > 0),
+    screen_type ENUM('Regular', 'IMAX', '4DX') DEFAULT 'Regular',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (theater_id) REFERENCES theaters(theater_id),
+    UNIQUE KEY unique_screen_per_theater (theater_id, name)
+);
+
+-- Step 3: Create Movie table (independent)
+CREATE TABLE movies (
+    movie_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    title VARCHAR(200) NOT NULL,
+    genre VARCHAR(50),
+    duration_minutes INT NOT NULL CHECK (duration_minutes > 0),
+    rating VARCHAR(10),
+    release_date DATE,
+    description TEXT,
+    poster_url VARCHAR(500),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Step 4: Create Customer table (independent)
+CREATE TABLE customers (
+    customer_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    phone VARCHAR(15) UNIQUE NOT NULL,
+    first_name VARCHAR(50) NOT NULL,
+    last_name VARCHAR(50) NOT NULL,
+    date_of_birth DATE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Step 5: Create Showtime table (depends on Movie and Screen)
+CREATE TABLE showtimes (
+    showtime_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    movie_id BIGINT NOT NULL,
+    screen_id BIGINT NOT NULL,
+    show_date DATE NOT NULL,
+    show_time TIME NOT NULL,
+    price DECIMAL(8,2) NOT NULL CHECK (price > 0),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (movie_id) REFERENCES movies(movie_id),
+    FOREIGN KEY (screen_id) REFERENCES screens(screen_id),
+    UNIQUE KEY unique_showtime (screen_id, show_date, show_time),
+    CHECK (show_date >= CURDATE()) -- Cannot schedule shows in the past
+);
+
+-- Step 6: Create Booking table (depends on Customer and Showtime)
+CREATE TABLE bookings (
+    booking_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    customer_id BIGINT NOT NULL,
+    showtime_id BIGINT NOT NULL,
+    booking_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    total_amount DECIMAL(10,2) NOT NULL CHECK (total_amount > 0),
+    booking_status ENUM('confirmed', 'cancelled') DEFAULT 'confirmed',
+    booking_reference VARCHAR(20) UNIQUE NOT NULL,
+    FOREIGN KEY (customer_id) REFERENCES customers(customer_id),
+    FOREIGN KEY (showtime_id) REFERENCES showtimes(showtime_id)
+);
+
+-- Step 7: Create BookingSeat table (junction table)
+CREATE TABLE booking_seats (
+    booking_id BIGINT,
+    seat_number VARCHAR(10) NOT NULL,
+    seat_price DECIMAL(8,2) NOT NULL CHECK (seat_price > 0),
+    PRIMARY KEY (booking_id, seat_number),
+    FOREIGN KEY (booking_id) REFERENCES bookings(booking_id) ON DELETE CASCADE
+);
+
+-- Step 8: Create Payment table (depends on Booking)
+CREATE TABLE payments (
+    payment_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    booking_id BIGINT NOT NULL,
+    amount DECIMAL(10,2) NOT NULL CHECK (amount > 0),
+    payment_method ENUM('card', 'upi', 'wallet', 'cash') NOT NULL,
+    payment_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    transaction_id VARCHAR(100),
+    status ENUM('success', 'failed', 'pending') DEFAULT 'pending',
+    FOREIGN KEY (booking_id) REFERENCES bookings(booking_id)
+);
+
+-- Step 9: Add indexes for performance
+CREATE INDEX idx_showtimes_movie ON showtimes(movie_id);
+CREATE INDEX idx_showtimes_screen_date ON showtimes(screen_id, show_date);
+CREATE INDEX idx_bookings_customer ON bookings(customer_id);
+CREATE INDEX idx_bookings_showtime ON bookings(showtime_id);
+CREATE INDEX idx_payments_booking ON payments(booking_id);
+```
+
+### Sample Data and Queries
+
+**Insert Sample Data:**
+```sql
+-- Sample theater
+INSERT INTO theaters (name, address, city) 
+VALUES ('PVR Cinemas', '123 Mall Road', 'Mumbai');
+
+-- Sample screen
+INSERT INTO screens (theater_id, name, capacity) 
+VALUES (1, 'Screen 1', 100);
+
+-- Sample movie
+INSERT INTO movies (title, genre, duration_minutes, rating) 
+VALUES ('Avengers: Endgame', 'Action', 180, 'PG-13');
+
+-- Sample customer
+INSERT INTO customers (email, phone, first_name, last_name) 
+VALUES ('john@example.com', '9999999999', 'John', 'Doe');
+
+-- Sample showtime
+INSERT INTO showtimes (movie_id, screen_id, show_date, show_time, price) 
+VALUES (1, 1, '2026-07-20', '18:00:00', 250.00);
+```
+
+**Common Queries:**
+```sql
+-- Find available showtimes for a movie
+SELECT 
+    s.showtime_id,
+    m.title,
+    t.name as theater_name,
+    sc.name as screen_name,
+    s.show_date,
+    s.show_time,
+    s.price,
+    (sc.capacity - COALESCE(booked_seats.seat_count, 0)) as available_seats
+FROM showtimes s
+JOIN movies m ON s.movie_id = m.movie_id
+JOIN screens sc ON s.screen_id = sc.screen_id
+JOIN theaters t ON sc.theater_id = t.theater_id
+LEFT JOIN (
+    SELECT 
+        b.showtime_id,
+        COUNT(bs.seat_number) as seat_count
+    FROM bookings b
+    JOIN booking_seats bs ON b.booking_id = bs.booking_id
+    WHERE b.booking_status = 'confirmed'
+    GROUP BY b.showtime_id
+) booked_seats ON s.showtime_id = booked_seats.showtime_id
+WHERE m.movie_id = 1 
+  AND s.show_date >= CURDATE()
+ORDER BY s.show_date, s.show_time;
+
+-- Customer booking history
+SELECT 
+    b.booking_id,
+    b.booking_reference,
+    m.title,
+    s.show_date,
+    s.show_time,
+    b.total_amount,
+    b.booking_status,
+    GROUP_CONCAT(bs.seat_number) as seats
+FROM bookings b
+JOIN showtimes s ON b.showtime_id = s.showtime_id
+JOIN movies m ON s.movie_id = m.movie_id
+JOIN booking_seats bs ON b.booking_id = bs.booking_id
+WHERE b.customer_id = 1
+GROUP BY b.booking_id
+ORDER BY b.booking_date DESC;
 ```
 
 #### Step 3: Key Design Decisions
