@@ -1,0 +1,23 @@
+Module-2-Chapter-2-Three-Level-Architecture.md
+  s_cef9746d173eb7::t_947e4925665f00 1-670
+README.md
+  s_cef9746d173eb7::t_ad6f4623fce1eb 1-86
+Module-2-Relational-Database-Design.md
+  s_cef9746d173eb7::t_33711d7dffd183 1-613
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "4bab79d6a790555a2d5ceaed78d6894d597d506b",
+  "prompts": {},
+  "sessions": {
+    "s_cef9746d173eb7": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "fbc2c9ae-53e4-4bee-a699-9313abfddefa",
+        "model": "us.anthropic.claude-sonnet-4-20250514-v1:0"
+      },
+      "human_author": "sobhavesh <bhavesh.soni@coupa.com>"
+    }
+  }
+}
