@@ -1,0 +1,23 @@
+Database-Design/Module-1-Database-Design-Fundamentals/Chapter-1-What-is-Database-Design/README.md
+  s_cef9746d173eb7::t_951797f1d75c4b 1-243
+Database-Design/Module-1-Database-Design-Fundamentals/README.md
+  s_cef9746d173eb7::t_8334ef9f8ce25c 1-60
+Database-Design/Module-1-Database-Design-Fundamentals/Chapter-2-Design-Process/README.md
+  s_cef9746d173eb7::t_63c1f748a9299c 1-384
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "2c734f059de5106182de5800ef446f3288115588",
+  "prompts": {},
+  "sessions": {
+    "s_cef9746d173eb7": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "fbc2c9ae-53e4-4bee-a699-9313abfddefa",
+        "model": "us.anthropic.claude-sonnet-4-20250514-v1:0"
+      },
+      "human_author": "sobhavesh <bhavesh.soni@coupa.com>"
+    }
+  }
+}
