@@ -1,0 +1,19 @@
+Database-Design/Module-2-Relational-Database-Design/Chapter-2-Three-Level-Architecture/README.md
+  s_cef9746d173eb7::t_f66a287c81fb4d 1-749
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "dfa78d7141393547ed6be47e88ee9a2cc06987d3",
+  "prompts": {},
+  "sessions": {
+    "s_cef9746d173eb7": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "fbc2c9ae-53e4-4bee-a699-9313abfddefa",
+        "model": "us.anthropic.claude-sonnet-4-20250514-v1:0"
+      },
+      "human_author": "sobhavesh <bhavesh.soni@coupa.com>"
+    }
+  }
+}
