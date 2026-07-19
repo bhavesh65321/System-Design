@@ -1,0 +1,21 @@
+Database-Design/Module-2-Relational-Database-Design/Chapter-3-Normalization/README.md
+  s_cef9746d173eb7::t_2179c0fc241f8d 453-882
+  s_cef9746d173eb7::t_9c717da59135f8 883-1263
+  s_cef9746d173eb7::t_f14e32ef29d5d5 1-452
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "445733e7edbd90f79a51f41ef201ab96433d19f3",
+  "prompts": {},
+  "sessions": {
+    "s_cef9746d173eb7": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "fbc2c9ae-53e4-4bee-a699-9313abfddefa",
+        "model": "us.anthropic.claude-sonnet-4-20250514-v1:0"
+      },
+      "human_author": "sobhavesh <bhavesh.soni@coupa.com>"
+    }
+  }
+}
