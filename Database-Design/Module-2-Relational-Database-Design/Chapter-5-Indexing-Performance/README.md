@@ -1,632 +1,575 @@
 # Chapter 5: Indexing & Performance
 
-## What is an Index?
+## 1. Understanding Data Storage and Representation
 
-An **index** is a data structure that improves the speed of data retrieval operations on a database table at the cost of additional storage space and slower writes.
+### Logical vs Physical Representation
 
-**Analogy:** Like a book's index - instead of reading every page to find "Database", you check the index which says "Database: page 45, 67, 89".
-
+**Logical Representation (User's View):**
 ```
-WITHOUT INDEX:                    WITH INDEX:
-┌─────────────────┐              ┌─────────────────┐
-│ Search all rows │              │ Search index    │
-│ Row 1 → Check   │              │ Jump to exact   │
-│ Row 2 → Check   │              │ row location    │
-│ Row 3 → Check   │              └─────────────────┘
-│ ...             │                     │
-│ Row 1M → Check  │                     ▼
-└─────────────────┘              ┌─────────────────┐
-Time: O(n)                       │ Return result   │
-                                 └─────────────────┘
-                                 Time: O(log n)
+┌─────────────────────────────────────────────────────┐
+│                    employees                         │
+├──────────┬──────────┬─────────────┬─────────────────┤
+│ emp_id   │ name     │ address     │ salary          │
+├──────────┼──────────┼─────────────┼─────────────────┤
+│ 1        │ Alice    │ NYC         │ 50000           │
+│ 2        │ Bob      │ LA          │ 60000           │
+│ 3        │ Carol    │ Chicago     │ 55000           │
+└──────────┴──────────┴─────────────┴─────────────────┘
+
+User sees: Clean tables with rows and columns
 ```
 
----
+**Physical Representation (DBMS View):**
+```
+┌─────────────────────────────────────────────────────┐
+│              DATA PAGES (8KB each)                   │
+├─────────────────────────────────────────────────────┤
+│ Page 1: Contains rows 1-125 in data blocks          │
+│ Page 2: Contains rows 126-250 in data blocks        │
+│ Page 3: Contains rows 251-375 in data blocks        │
+└─────────────────────────────────────────────────────┘
 
-## Why Do We Need Indexes?
-
-### Problem Without Index
-
-```sql
--- Table with 10 million users
-SELECT * FROM users WHERE email = 'john@example.com';
-
--- Without index: Scans ALL 10 million rows
--- Time: 5-10 seconds ❌
+DBMS sees: Data stored in pages on disk
 ```
 
-### Solution With Index
+### Data Pages Structure
 
-```sql
--- Create index on email column
-CREATE INDEX idx_email ON users(email);
-
--- Same query now
-SELECT * FROM users WHERE email = 'john@example.com';
-
--- With index: Directly jumps to matching row
--- Time: 0.001 seconds ✅
-```
-
----
-
-## How Index Works Internally
-
-### B+ Tree Structure (Most Common)
+**A data page is typically 8KB in size:**
 
 ```
-                        ROOT NODE
-                    ┌─────┬─────┐
-                    │ 50  │ 100 │
-                    └──┬──┴──┬──┘
-                       │     │
-         ┌─────────────┘     └─────────────┐
-         ▼                                 ▼
-    INTERNAL NODE                    INTERNAL NODE
-   ┌────┬────┬────┐                ┌────┬────┬────┐
-   │ 20 │ 35 │ 45 │                │ 70 │ 85 │ 95 │
-   └─┬──┴─┬──┴─┬──┘                └─┬──┴─┬──┴─┬──┘
-     │    │    │                     │    │    │
-     ▼    ▼    ▼                     ▼    ▼    ▼
-   LEAF NODES (Actual Data Pointers)
-   ┌──────────┐ ┌──────────┐ ┌──────────┐
-   │10,15,18  │→│22,28,33  │→│36,40,44  │→ ...
-   └──────────┘ └──────────┘ └──────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                      DATA PAGE (8KB)                             │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │ PAGE HEADER (96 bytes)                                   │   │
+│  │ • Page ID                                                │   │
+│  │ • Free space available                                   │   │
+│  │ • Checksum                                               │   │
+│  │ • Page type (data/index)                                 │   │
+│  └──────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │ DATA RECORDS AREA (~8060 bytes)                          │   │
+│  │ • Row 1: 64 bytes                                        │   │
+│  │ • Row 2: 64 bytes                                        │   │
+│  │ • Row 3: 64 bytes                                        │   │
+│  │ • ...                                                    │   │
+│  │ • Row 125: 64 bytes                                      │   │
+│  │ (Can fit ~125 rows of 64 bytes each)                     │   │
+│  └──────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │ OFFSET ARRAY (36 bytes)                                  │   │
+│  │ • Pointers to row locations                              │   │
+│  │ • Ensures logical sequence                               │   │
+│  │ • Maps physical to logical order                          │   │
+│  └──────────────────────────────────────────────────────────┘   │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+
+Total: 96 + 8060 + 36 = 8192 bytes (8KB)
 ```
 
-**Key Points:**
-- **Balanced tree** - All leaf nodes at same level
-- **Sorted order** - Easy to find range queries
-- **Leaf nodes linked** - Fast sequential access
-- **Height = log(n)** - 10M rows = ~4 levels only!
+### Row Storage in Data Pages
 
----
+**How rows are stored:**
 
-## Types of Indexes
+```
+INSERTION ORDER:
+INSERT emp_id=5, name='Eve'
+INSERT emp_id=2, name='Bob'
+INSERT emp_id=8, name='Frank'
+INSERT emp_id=1, name='Alice'
 
-### 1. Primary Index (Clustered Index)
+PHYSICAL STORAGE (in page):
+┌─────────────────────────────────────────────────────┐
+│ Position 1: emp_id=5, name='Eve'   (inserted 1st)   │
+│ Position 2: emp_id=2, name='Bob'   (inserted 2nd)   │
+│ Position 3: emp_id=8, name='Frank' (inserted 3rd)   │
+│ Position 4: emp_id=1, name='Alice' (inserted 4th)   │
+└─────────────────────────────────────────────────────┘
 
-**Definition:** Index on primary key. Data rows are physically stored in index order.
+OFFSET ARRAY (Logical Order):
+┌─────────────────────────────────────────────────────┐
+│ Logical 1 → Points to Position 4 (emp_id=1)         │
+│ Logical 2 → Points to Position 2 (emp_id=2)         │
+│ Logical 3 → Points to Position 1 (emp_id=5)         │
+│ Logical 4 → Points to Position 3 (emp_id=8)         │
+└─────────────────────────────────────────────────────┘
+
+Result: Rows appear sorted by emp_id even though 
+        physically stored in insertion order!
+```
+
+**Capacity Calculation:**
+```
+Page Size: 8KB = 8192 bytes
+Header: 96 bytes
+Offset Array: 36 bytes
+Available for data: 8192 - 96 - 36 = 8060 bytes
+
+If each row is 64 bytes:
+Rows per page = 8060 / 64 ≈ 125 rows
+
+If table has 1 million rows:
+Pages needed = 1,000,000 / 125 = 8,000 pages
+```
+
+### Data Blocks
+
+**Physical storage units on disk:**
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│ PRIMARY INDEX (Clustered)                           │
+│              DISK STORAGE HIERARCHY                  │
+├─────────────────────────────────────────────────────┤
+│                                                      │
+│  DISK                                                │
+│  ├── Data Block 1 (4KB)                              │
+│  ├── Data Block 2 (4KB)                              │
+│  ├── Data Block 3 (4KB)                              │
+│  └── Data Block 4 (4KB)                              │
+│      ↓                                               │
+│  DATA PAGE (8KB) = 2 Data Blocks                     │
+│      ↓                                               │
+│  MEMORY (Buffer Pool)                                │
+│                                                      │
+└─────────────────────────────────────────────────────┘
+
+Key Points:
+• Data blocks = Minimum I/O unit (4KB typically)
+• Data page = Logical unit (8KB)
+• DBMS maps pages to blocks for disk I/O
+• When query needs data, entire page loaded to memory
+```
+
+---
+
+## 2. Role of Indexing in Search Optimization
+
+### Purpose of Indexing
+
+**Without Index (Sequential Scan):**
+```
+Query: SELECT * FROM users WHERE emp_id = 5;
+
+┌─────────────────────────────────────────────────────┐
+│ SEQUENTIAL SCAN (O(n))                              │
+├─────────────────────────────────────────────────────┤
+│ Check Page 1: emp_id 1,2,3,4 → Not found           │
+│ Check Page 2: emp_id 5,6,7,8 → FOUND! ✓            │
+│ Check Page 3: emp_id 9,10,11,12 → (unnecessary)    │
+│ ...                                                 │
+│ Check Page 8000: emp_id 999996-1000000             │
+│                                                     │
+│ Time: Must read ~4000 pages (50% of table)          │
+│ Complexity: O(n)                                    │
+└─────────────────────────────────────────────────────┘
+```
+
+**With Index (B+ Tree Search):**
+```
+Query: SELECT * FROM users WHERE emp_id = 5;
+
+┌─────────────────────────────────────────────────────┐
+│ B+ TREE SEARCH (O(log n))                           │
+├─────────────────────────────────────────────────────┤
+│ Root: Is 5 < 500? Yes, go left                      │
+│ Level 1: Is 5 < 250? Yes, go left                   │
+│ Level 2: Is 5 < 125? Yes, go left                   │
+│ Leaf: Found emp_id=5 → Page pointer                 │
+│                                                     │
+│ Time: Read ~4 pages (index pages + data page)       │
+│ Complexity: O(log n)                                │
+│ Speedup: 1000x faster!                              │
+└─────────────────────────────────────────────────────┘
+```
+
+### How Indexing Works
+
+**B+ Tree for emp_id column:**
+
+```
+                        ROOT
+                    ┌───────────┐
+                    │ 500       │
+                    └─────┬─────┘
+                          │
+            ┌─────────────┴─────────────┐
+            ▼                           ▼
+        LEVEL 1                     LEVEL 1
+    ┌─────────────┐             ┌─────────────┐
+    │ 250         │             │ 750         │
+    └──┬──────┬───┘             └──┬──────┬───┘
+       │      │                    │      │
+    ┌──▼──┐ ┌─▼──┐             ┌──▼──┐ ┌─▼──┐
+    │125  │ │375 │             │625  │ │875 │
+    └──┬──┘ └─┬──┘             └──┬──┘ └─┬──┘
+       │      │                   │      │
+    LEAF NODES (Actual Values)
+    ┌──────────────────────────────────────────┐
+    │ 1,2,3,4,5 → Page 1                       │
+    │ 6,7,8,9,10 → Page 2                      │
+    │ ...                                      │
+    │ 995,996,997,998,999,1000 → Page 8000    │
+    └──────────────────────────────────────────┘
+
+Search for emp_id=5:
+1. Start at root (500)
+2. 5 < 500? Yes → Go left
+3. 5 < 250? Yes → Go left
+4. 5 < 125? No → Go right
+5. Found in leaf: 5 → Page 1
+6. Load Page 1 from disk
+```
+
+---
+
+## 3. How DBMS Manages Data Pages, Indexing, and Rows
+
+### Data Page Selection During Insertions
+
+**Scenario: Insert new row with emp_id=150**
+
+```
+STEP 1: Use B+ Tree to find correct page
+┌─────────────────────────────────────────────────────┐
+│ Search index for emp_id=150                         │
+│ Navigate B+ Tree → Find Page 2 (contains 125-250)   │
+└─────────────────────────────────────────────────────┘
+
+STEP 2: Check if page has space
+┌─────────────────────────────────────────────────────┐
+│ Page 2 Status:                                      │
+│ • Contains 125 rows (64 bytes each)                 │
+│ • Used space: 125 × 64 = 8000 bytes                │
+│ • Available: 8060 - 8000 = 60 bytes                │
+│ • New row: 64 bytes                                │
+│ • Result: NOT ENOUGH SPACE! ❌                      │
+└─────────────────────────────────────────────────────┘
+
+STEP 3: Page Splitting
+┌─────────────────────────────────────────────────────┐
+│ BEFORE SPLIT:                                       │
+│ Page 2: [125,126,...,249] (125 rows)                │
+│                                                     │
+│ AFTER SPLIT:                                        │
+│ Page 2: [125,126,...,187] (63 rows)                 │
+│ Page 2b: [188,189,...,249,150] (63 rows + new)      │
+│                                                     │
+│ UPDATE INDEX:                                       │
+│ • Update B+ Tree pointers                           │
+│ • Page 2 now points to [125-187]                    │
+│ • Page 2b now points to [150,188-249]               │
+└─────────────────────────────────────────────────────┘
+```
+
+### Offset Array Role
+
+**Ensures logical ordering independent of physical order:**
+
+```
+PHYSICAL STORAGE (Insertion order):
+┌─────────────────────────────────────────────────────┐
+│ Pos 1: emp_id=150 (inserted last)                   │
+│ Pos 2: emp_id=125 (inserted 1st)                    │
+│ Pos 3: emp_id=200 (inserted 2nd)                    │
+│ Pos 4: emp_id=175 (inserted 3rd)                    │
+└─────────────────────────────────────────────────────┘
+
+OFFSET ARRAY (Logical order):
+┌─────────────────────────────────────────────────────┐
+│ Logical 1 → Physical Pos 2 (emp_id=125)             │
+│ Logical 2 → Physical Pos 4 (emp_id=175)             │
+│ Logical 3 → Physical Pos 1 (emp_id=150)             │
+│ Logical 4 → Physical Pos 3 (emp_id=200)             │
+└─────────────────────────────────────────────────────┘
+
+RESULT: Rows appear sorted [125,150,175,200]
+        even though physically stored differently!
+```
+
+### Steps for Query Execution
+
+**Query: SELECT * FROM employees WHERE emp_id = 150;**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ STEP 1: Load Index Page                                         │
+├─────────────────────────────────────────────────────────────────┤
+│ • Read B+ Tree root from disk                                   │
+│ • Load into memory (buffer pool)                                │
+│ • Time: 1 disk I/O                                              │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│ STEP 2: Traverse Index                                          │
+├─────────────────────────────────────────────────────────────────┤
+│ • Navigate B+ Tree: 150 < 500? Yes → Left                       │
+│ • Navigate B+ Tree: 150 < 250? Yes → Left                       │
+│ • Navigate B+ Tree: 150 < 125? No → Right                       │
+│ • Found leaf node: emp_id=150 → Page 2b                         │
+│ • Time: In-memory operations (fast)                             │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│ STEP 3: Load Data Block                                         │
+├─────────────────────────────────────────────────────────────────┤
+│ • Index says: emp_id=150 is in Page 2b                          │
+│ • Load Page 2b from disk (2 data blocks)                        │
+│ • Load into buffer pool                                         │
+│ • Time: 1 disk I/O                                              │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│ STEP 4: Access Row Using Offset Array                           │
+├─────────────────────────────────────────────────────────────────┤
+│ • Page 2b offset array: Logical 3 → Physical Pos 1              │
+│ • Jump to position 1 in page                                    │
+│ • Read row: emp_id=150, name='Carol', salary=55000              │
+│ • Time: In-memory operation (microseconds)                      │
+└─────────────────────────────────────────────────────────────────┘
+
+TOTAL TIME: ~2 disk I/Os + in-memory navigation
+WITHOUT INDEX: ~4000 disk I/Os (sequential scan)
+SPEEDUP: 2000x faster!
+```
+
+---
+
+## 4. Types of Indexing: Clustered vs Non-Clustered
+
+### Clustered Indexing
+
+**Definition:** Rows are physically ordered in data pages to match index order.
+
+```
+┌─────────────────────────────────────────────────────┐
+│ CLUSTERED INDEX (on emp_id)                         │
 ├─────────────────────────────────────────────────────┤
 │ • Only ONE per table                                │
-│ • Data rows stored in sorted order                  │
-│ • Created automatically on PRIMARY KEY              │
-│ • Fastest for primary key lookups                   │
+│ • Determines physical row order                      │
+│ • Usually on PRIMARY KEY                            │
+│ • Data pages sorted by index column                 │
 └─────────────────────────────────────────────────────┘
 
-Example:
-┌────────┬──────────┬─────────────┐
-│ emp_id │ name     │ salary      │  ← Rows stored in emp_id order
-├────────┼──────────┼─────────────┤
-│ 1      │ Alice    │ 50000       │
-│ 2      │ Bob      │ 60000       │
-│ 3      │ Carol    │ 55000       │
-│ 4      │ David    │ 70000       │
-└────────┴──────────┴─────────────┘
+PHYSICAL DATA PAGES:
+┌──────────────────────────────────────────────────────┐
+│ Page 1: emp_id [1,2,3,4,5]                           │
+│ Page 2: emp_id [6,7,8,9,10]                          │
+│ Page 3: emp_id [11,12,13,14,15]                      │
+│ ...                                                  │
+│ Page 8000: emp_id [999996,999997,999998,999999,1000]│
+└──────────────────────────────────────────────────────┘
+
+OFFSET ARRAY in each page:
+┌──────────────────────────────────────────────────────┐
+│ Page 1 Offset Array:                                 │
+│ Logical 1 → Pos 1 (emp_id=1)                         │
+│ Logical 2 → Pos 2 (emp_id=2)                         │
+│ Logical 3 → Pos 3 (emp_id=3)                         │
+│ Logical 4 → Pos 4 (emp_id=4)                         │
+│ Logical 5 → Pos 5 (emp_id=5)                         │
+└──────────────────────────────────────────────────────┘
+
+BENEFIT: Range queries are VERY fast
+Query: SELECT * FROM employees WHERE emp_id BETWEEN 100 AND 200;
+• Find Page containing emp_id=100
+• Read sequentially until emp_id=200
+• No random page jumps needed!
 ```
 
-### 2. Secondary Index (Non-Clustered Index)
+### Non-Clustered Indexing
 
-**Definition:** Index on non-primary key columns. Contains pointers to actual data rows.
+**Definition:** Separate B+ Tree on non-primary key columns with pointers to data.
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│ SECONDARY INDEX (Non-Clustered)                     │
+│ NON-CLUSTERED INDEX (on name)                       │
 ├─────────────────────────────────────────────────────┤
-│ • Multiple per table allowed                        │
-│ • Stores column value + pointer to row              │
-│ • Extra lookup needed (index → row)                 │
-│ • Good for frequently searched columns              │
+│ • Multiple allowed per table                        │
+│ • Does NOT affect physical row order                │
+│ • Maintains separate B+ Tree                        │
+│ • Leaf nodes contain pointers to data pages         │
 └─────────────────────────────────────────────────────┘
 
-Example: Index on 'name' column
-┌──────────┬─────────────┐
-│ name     │ Row Pointer │
-├──────────┼─────────────┤
-│ Alice    │ → Row 1     │
-│ Bob      │ → Row 2     │
-│ Carol    │ → Row 3     │
-│ David    │ → Row 4     │
-└──────────┴─────────────┘
+PHYSICAL DATA PAGES (unchanged):
+┌──────────────────────────────────────────────────────┐
+│ Page 1: emp_id [1,2,3,4,5]                           │
+│ Page 2: emp_id [6,7,8,9,10]                          │
+│ Page 3: emp_id [11,12,13,14,15]                      │
+└──────────────────────────────────────────────────────┘
+
+SEPARATE NON-CLUSTERED INDEX (on name):
+┌──────────────────────────────────────────────────────┐
+│ B+ Tree Leaf Nodes:                                  │
+│ Alice → Page 1, Pos 1                                │
+│ Bob → Page 2, Pos 3                                  │
+│ Carol → Page 3, Pos 2                                │
+│ David → Page 1, Pos 5                                │
+│ Eve → Page 2, Pos 1                                  │
+└──────────────────────────────────────────────────────┘
+
+QUERY: SELECT * FROM employees WHERE name = 'Carol';
+1. Search name index B+ Tree → Find 'Carol'
+2. Get pointer: Page 3, Pos 2
+3. Load Page 3 from disk
+4. Use offset array to jump to Pos 2
+5. Return row
+
+COST: 2 disk I/Os (index page + data page)
 ```
 
-### 3. Composite Index (Multi-Column Index)
+### Comparison: Clustered vs Non-Clustered
 
-**Definition:** Index on multiple columns together.
-
-```sql
-CREATE INDEX idx_name_dept ON employees(department, name);
 ```
+┌─────────────────────────────────────────────────────────────────┐
+│                    CLUSTERED vs NON-CLUSTERED                    │
+├──────────────────────┬──────────────────┬──────────────────────┤
+│ Aspect               │ Clustered        │ Non-Clustered        │
+├──────────────────────┼──────────────────┼──────────────────────┤
+│ Per Table            │ Only 1           │ Multiple (up to 999) │
+│ Physical Order       │ Determines       │ Does not affect      │
+│ Storage              │ Data pages       │ Separate B+ Tree     │
+│ Range Queries        │ Very fast        │ Slower (jumps)       │
+│ Lookup Speed         │ Fast             │ Slower (2 lookups)   │
+│ Insert/Update        │ Expensive        │ Less expensive       │
+│ Space Overhead       │ None (data)      │ Extra B+ Tree        │
+├──────────────────────┼──────────────────┼──────────────────────┤
+│ Best For             │ Primary key      │ Secondary columns    │
+│                      │ Range queries    │ Frequent searches    │
+└──────────────────────┴──────────────────┴──────────────────────┘
+```
+
+---
+
+## 5. Why Avoid Too Many Indexes?
+
+### Storage and Memory Costs
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│ COMPOSITE INDEX                                     │
+│ STORAGE IMPACT OF INDEXES                           │
 ├─────────────────────────────────────────────────────┤
-│ Index on (department, name)                         │
-├──────────────┬──────────┬─────────────┐             │
-│ department   │ name     │ Row Pointer │             │
-├──────────────┼──────────┼─────────────┤             │
-│ Engineering  │ Alice    │ → Row 3     │             │
-│ Engineering  │ Bob      │ → Row 1     │             │
-│ Marketing    │ Carol    │ → Row 2     │             │
-│ Marketing    │ David    │ → Row 4     │             │
-└──────────────┴──────────┴─────────────┘             │
+│ Table: employees (1 million rows)                   │
+│ Row size: 64 bytes                                  │
+│                                                     │
+│ Base table size: 1M × 64 = 64 MB                    │
+│                                                     │
+│ + Clustered index (emp_id): ~64 MB                  │
+│ + Non-clustered index (name): ~64 MB                │
+│ + Non-clustered index (email): ~64 MB               │
+│ + Non-clustered index (dept): ~64 MB                │
+│ + Non-clustered index (salary): ~64 MB              │
+│                                                     │
+│ TOTAL: 64 + 64 + 64 + 64 + 64 + 64 = 384 MB        │
+│                                                     │
+│ OVERHEAD: 6x the original table size!               │
+│ MEMORY: All indexes must fit in buffer pool         │
 └─────────────────────────────────────────────────────┘
 ```
 
-**Important: Column Order Matters!**
-
-```
-Index: (department, name)
-
-✅ Uses Index:
-WHERE department = 'Engineering'
-WHERE department = 'Engineering' AND name = 'Alice'
-
-❌ Cannot Use Index:
-WHERE name = 'Alice'  -- First column not used!
-```
-
-### 4. Unique Index
-
-**Definition:** Ensures all values in indexed column(s) are unique.
-
-```sql
-CREATE UNIQUE INDEX idx_email ON users(email);
-```
+### Update Overhead
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│ UNIQUE INDEX                                        │
+│ COST OF INSERTING ONE ROW                           │
 ├─────────────────────────────────────────────────────┤
-│ • Enforces uniqueness constraint                    │
-│ • Automatically created for PRIMARY KEY & UNIQUE   │
-│ • Rejects duplicate values on insert               │
+│ INSERT INTO employees VALUES (1001, 'Frank', ...);  │
+│                                                     │
+│ OPERATIONS REQUIRED:                                │
+│ 1. Insert into data page                            │
+│ 2. Update clustered index (emp_id)                  │
+│ 3. Update non-clustered index (name)                │
+│ 4. Update non-clustered index (email)               │
+│ 5. Update non-clustered index (dept)                │
+│ 6. Update non-clustered index (salary)              │
+│                                                     │
+│ TOTAL: 6 B+ Tree updates!                           │
+│                                                     │
+│ WITH 5 INDEXES:                                     │
+│ • 1 INSERT becomes 6 operations                     │
+│ • 1 million inserts = 6 million operations          │
+│ • Time: 10x slower than no indexes                  │
 └─────────────────────────────────────────────────────┘
 ```
 
-### 5. Full-Text Index
-
-**Definition:** For searching text content (articles, descriptions).
-
-```sql
-CREATE FULLTEXT INDEX idx_content ON articles(title, body);
-
--- Usage
-SELECT * FROM articles 
-WHERE MATCH(title, body) AGAINST('database optimization');
-```
-
-### 6. Partial Index (Filtered Index)
-
-**Definition:** Index on subset of rows based on condition.
-
-```sql
--- Only index active users (PostgreSQL)
-CREATE INDEX idx_active_users ON users(email) 
-WHERE is_active = true;
-```
+### Practical Indexing Guidelines
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│ PARTIAL INDEX                                       │
+│ WHEN TO CREATE INDEXES                              │
 ├─────────────────────────────────────────────────────┤
-│ • Smaller index size                                │
-│ • Faster for specific queries                       │
-│ • Good when querying subset frequently              │
+│ ✅ DO INDEX:                                         │
+│ • Primary key (automatic)                           │
+│ • Foreign keys (for joins)                          │
+│ • Columns in WHERE clause (frequently)              │
+│ • Columns in ORDER BY                               │
+│ • Columns in GROUP BY                               │
+│ • High selectivity columns (unique values)          │
+│                                                     │
+│ ❌ DON'T INDEX:                                      │
+│ • Small tables (< 1000 rows)                        │
+│ • Low selectivity (gender, boolean, status)         │
+│ • Frequently updated columns                        │
+│ • Columns rarely in queries                         │
+│ • Columns with many NULL values                     │
+│                                                     │
+│ ⚠️ INDEX SPARINGLY:                                  │
+│ • Aim for 3-5 indexes per table                     │
+│ • Monitor unused indexes                            │
+│ • Remove indexes not used in 30 days                │
 └─────────────────────────────────────────────────────┘
 ```
-
----
-
-## Index Types Comparison
-
-| Index Type | Use Case | Pros | Cons |
-|------------|----------|------|------|
-| **Primary** | Primary key lookups | Fastest, auto-created | Only one per table |
-| **Secondary** | Non-PK column search | Multiple allowed | Extra lookup needed |
-| **Composite** | Multi-column WHERE | Single index for multiple cols | Column order matters |
-| **Unique** | Enforce uniqueness | Data integrity | Slower inserts |
-| **Full-Text** | Text search | Natural language search | Large index size |
-| **Partial** | Filtered queries | Smaller, faster | Limited use cases |
-
----
-
-## When to Create Index
-
-### ✅ Create Index When:
-
-```
-┌─────────────────────────────────────────────────────┐
-│ 1. Column used frequently in WHERE clause           │
-│ 2. Column used in JOIN conditions                   │
-│ 3. Column used in ORDER BY                          │
-│ 4. Column used in GROUP BY                          │
-│ 5. Column with high selectivity (many unique values)│
-│ 6. Foreign key columns                              │
-└─────────────────────────────────────────────────────┘
-```
-
-### ❌ Avoid Index When:
-
-```
-┌─────────────────────────────────────────────────────┐
-│ 1. Small tables (< 1000 rows)                       │
-│ 2. Columns with low selectivity (gender, boolean)   │
-│ 3. Frequently updated columns                       │
-│ 4. Columns rarely used in queries                   │
-│ 5. Tables with heavy INSERT/UPDATE/DELETE           │
-└─────────────────────────────────────────────────────┘
-```
-
----
-
-## Query Execution Plan (EXPLAIN)
-
-### What is EXPLAIN?
-
-Shows how database executes a query - helps identify performance issues.
-
-```sql
-EXPLAIN SELECT * FROM users WHERE email = 'john@example.com';
-```
-
-### Reading EXPLAIN Output
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        EXPLAIN OUTPUT                                        │
-├─────────────────────────────────────────────────────────────────────────────┤
-│ id │ select_type │ table │ type  │ key      │ rows    │ Extra              │
-├────┼─────────────┼───────┼───────┼──────────┼─────────┼────────────────────┤
-│ 1  │ SIMPLE      │ users │ ref   │ idx_email│ 1       │ Using index        │
-└────┴─────────────┴───────┴───────┴──────────┴─────────┴────────────────────┘
-```
-
-### Key Fields to Check
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ FIELD        │ MEANING                                                      │
-├──────────────┼──────────────────────────────────────────────────────────────┤
-│ type         │ Access method (best to worst):                               │
-│              │ const > eq_ref > ref > range > index > ALL                   │
-├──────────────┼──────────────────────────────────────────────────────────────┤
-│ key          │ Index used (NULL = no index used)                            │
-├──────────────┼──────────────────────────────────────────────────────────────┤
-│ rows         │ Estimated rows to examine (lower = better)                   │
-├──────────────┼──────────────────────────────────────────────────────────────┤
-│ Extra        │ Additional info:                                             │
-│              │ "Using index" = Good (index-only scan)                       │
-│              │ "Using filesort" = Bad (extra sorting needed)                │
-│              │ "Using temporary" = Bad (temp table created)                 │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### Access Types (Best to Worst)
-
-```
-BEST ──────────────────────────────────────────────────────────────► WORST
-
-const    eq_ref    ref      range     index      ALL
-  │         │       │         │         │         │
-  ▼         ▼       ▼         ▼         ▼         ▼
-Single   Unique   Non-     Range    Full      Full
-row      index    unique   scan     index     table
-lookup   lookup   index    (>,<)    scan      scan
-                  lookup
-```
-
----
-
-## Common Performance Problems & Solutions
-
-### Problem 1: Full Table Scan
-
-```sql
--- Bad: No index on email
-EXPLAIN SELECT * FROM users WHERE email = 'john@example.com';
--- type: ALL, rows: 10000000 ❌
-
--- Solution: Add index
-CREATE INDEX idx_email ON users(email);
--- type: ref, rows: 1 ✅
-```
-
-### Problem 2: Index Not Used
-
-```sql
--- Bad: Function on indexed column
-SELECT * FROM users WHERE LOWER(email) = 'john@example.com';
--- Index on email NOT used! ❌
-
--- Solution: Use functional index or fix query
-CREATE INDEX idx_email_lower ON users(LOWER(email));
--- OR
-SELECT * FROM users WHERE email = 'john@example.com';
-```
-
-### Problem 3: Wrong Index Order
-
-```sql
--- Index: (department, name)
-
--- Bad: Searching by second column only
-SELECT * FROM users WHERE name = 'John';
--- Index NOT used! ❌
-
--- Good: Include first column
-SELECT * FROM users WHERE department = 'Engineering' AND name = 'John';
--- Index used ✅
-```
-
-### Problem 4: Too Many Indexes
-
-```
-┌─────────────────────────────────────────────────────┐
-│ PROBLEM: Over-indexing                              │
-├─────────────────────────────────────────────────────┤
-│ • Each INSERT updates ALL indexes                   │
-│ • Each UPDATE on indexed column updates index       │
-│ • More storage space needed                         │
-│ • Index maintenance overhead                        │
-├─────────────────────────────────────────────────────┤
-│ SOLUTION: Only index what you query                 │
-│ • Audit unused indexes periodically                 │
-│ • Use composite index instead of multiple single    │
-└─────────────────────────────────────────────────────┘
-```
-
----
-
-## Index Best Practices
-
-### 1. Selectivity Rule
-
-```
-HIGH SELECTIVITY (Good for index):
-┌─────────────────────────────────────────────────────┐
-│ email        → Unique values      → Index ✅        │
-│ phone        → Unique values      → Index ✅        │
-│ user_id      → Unique values      → Index ✅        │
-└─────────────────────────────────────────────────────┘
-
-LOW SELECTIVITY (Bad for index):
-┌─────────────────────────────────────────────────────┐
-│ gender       → 2-3 values         → No Index ❌     │
-│ is_active    → true/false         → No Index ❌     │
-│ status       → 3-5 values         → Maybe Partial   │
-└─────────────────────────────────────────────────────┘
-```
-
-### 2. Covering Index
-
-```sql
--- Query needs: name, email
-SELECT name, email FROM users WHERE department = 'Engineering';
-
--- Covering index: Include all needed columns
-CREATE INDEX idx_dept_covering ON users(department, name, email);
-
--- Result: "Using index" - No table lookup needed!
-```
-
-### 3. Index Column Order
-
-```
-┌─────────────────────────────────────────────────────┐
-│ COMPOSITE INDEX ORDER RULES                         │
-├─────────────────────────────────────────────────────┤
-│ 1. Equality columns first (WHERE col = value)       │
-│ 2. Range columns last (WHERE col > value)           │
-│ 3. Most selective column first                      │
-└─────────────────────────────────────────────────────┘
-
-Example:
--- Query: WHERE status = 'active' AND created_at > '2024-01-01'
--- Best index: (status, created_at)
---             equality↑    range↑
-```
-
----
-
-## Real-World Examples
-
-### Example 1: E-commerce Product Search
-
-```sql
--- Table: products (10 million rows)
--- Common queries:
--- 1. Search by category
--- 2. Filter by price range
--- 3. Sort by rating
-
--- Optimal indexes:
-CREATE INDEX idx_category ON products(category_id);
-CREATE INDEX idx_category_price ON products(category_id, price);
-CREATE INDEX idx_category_rating ON products(category_id, rating DESC);
-
--- Query using composite index
-SELECT * FROM products 
-WHERE category_id = 5 
-  AND price BETWEEN 100 AND 500
-ORDER BY rating DESC
-LIMIT 20;
-```
-
-### Example 2: Social Media Feed
-
-```sql
--- Table: posts (100 million rows)
--- Query: Get user's feed (posts from followed users)
-
--- Without proper index: 30+ seconds ❌
-SELECT p.* FROM posts p
-JOIN follows f ON p.user_id = f.following_id
-WHERE f.follower_id = 12345
-ORDER BY p.created_at DESC
-LIMIT 20;
-
--- Optimal indexes:
-CREATE INDEX idx_follows_follower ON follows(follower_id, following_id);
-CREATE INDEX idx_posts_user_time ON posts(user_id, created_at DESC);
-
--- With indexes: < 50ms ✅
-```
-
-### Example 3: User Authentication
-
-```sql
--- Table: users (50 million rows)
--- Query: Login by email
-
--- Critical index for login performance
-CREATE UNIQUE INDEX idx_email ON users(email);
-
--- Query
-SELECT user_id, password_hash, is_active 
-FROM users 
-WHERE email = 'user@example.com';
-
--- Result: O(log n) lookup = ~0.001 seconds
-```
-
----
-
-## Index Maintenance
-
-### Monitor Index Usage
-
-```sql
--- MySQL: Check index usage
-SELECT 
-    table_name,
-    index_name,
-    stat_value as pages_read
-FROM mysql.innodb_index_stats
-WHERE stat_name = 'n_leaf_pages'
-ORDER BY stat_value DESC;
-
--- PostgreSQL: Check unused indexes
-SELECT 
-    schemaname,
-    tablename,
-    indexname,
-    idx_scan as times_used
-FROM pg_stat_user_indexes
-WHERE idx_scan = 0;
-```
-
-### Remove Unused Indexes
-
-```sql
--- Identify and drop unused indexes
-DROP INDEX idx_unused ON table_name;
-```
-
-### Rebuild Fragmented Indexes
-
-```sql
--- MySQL
-ALTER TABLE users ENGINE=InnoDB;
-
--- PostgreSQL
-REINDEX INDEX idx_email;
-```
-
----
-
-## Quick Reference Cheat Sheet
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        INDEX CHEAT SHEET                                     │
-├─────────────────────────────────────────────────────────────────────────────┤
-│ CREATE INDEX idx_name ON table(column);        -- Basic index               │
-│ CREATE UNIQUE INDEX idx_name ON table(column); -- Unique index              │
-│ CREATE INDEX idx_name ON table(col1, col2);    -- Composite index           │
-│ DROP INDEX idx_name ON table;                  -- Remove index              │
-│ SHOW INDEX FROM table;                         -- List indexes (MySQL)      │
-│ EXPLAIN SELECT ...;                            -- Check query plan          │
-├─────────────────────────────────────────────────────────────────────────────┤
-│ GOOD INDEX CANDIDATES:                                                       │
-│ • WHERE clause columns                                                       │
-│ • JOIN columns                                                               │
-│ • ORDER BY columns                                                           │
-│ • Foreign keys                                                               │
-├─────────────────────────────────────────────────────────────────────────────┤
-│ AVOID INDEXING:                                                              │
-│ • Small tables                                                               │
-│ • Low selectivity columns                                                    │
-│ • Frequently updated columns                                                 │
-│ • Columns rarely in queries                                                  │
-├─────────────────────────────────────────────────────────────────────────────┤
-│ EXPLAIN TYPE (Best → Worst):                                                 │
-│ const → eq_ref → ref → range → index → ALL                                  │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Interview Questions
-
-### Beginner Level
-
-**Q1: What is an index and why is it used?**
-> Index is a data structure that improves query speed by allowing direct access to rows instead of scanning entire table. Like a book's index.
-
-**Q2: What is the difference between clustered and non-clustered index?**
-> Clustered: Data rows stored in index order. Only one per table.
-> Non-clustered: Separate structure with pointers to data. Multiple allowed.
-
-**Q3: When should you NOT create an index?**
-> Small tables, low selectivity columns (gender, boolean), frequently updated columns, rarely queried columns.
-
-### Intermediate Level
-
-**Q4: What is a composite index and how does column order matter?**
-> Index on multiple columns. Order matters because index can only be used left-to-right. Index(A,B) works for WHERE A=x or WHERE A=x AND B=y, but NOT for WHERE B=y alone.
-
-**Q5: How do you identify if a query is using an index?**
-> Use EXPLAIN command. Check 'type' field (should not be ALL), 'key' field (should show index name), 'rows' field (should be low).
-
-**Q6: What is a covering index?**
-> Index that contains all columns needed by query. Avoids table lookup. Shows "Using index" in EXPLAIN.
-
-### Senior Level
-
-**Q7: Design indexing strategy for an e-commerce search with filters.**
-> Create composite indexes based on common filter combinations. Put equality filters first, range filters last. Consider covering indexes for frequently accessed columns. Use partial indexes for status filters.
-
-**Q8: How would you handle index maintenance for a high-traffic table?**
-> Monitor index usage, remove unused indexes, schedule rebuilds during low traffic, use online index operations, consider partitioning for very large tables.
 
 ---
 
 ## Summary
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        KEY TAKEAWAYS                                         │
-├─────────────────────────────────────────────────────────────────────────────┤
-│ 1. Index = Fast lookup structure (B+ Tree)                                  │
-│ 2. Primary Index = One per table, data in sorted order                      │
-│ 3. Secondary Index = Multiple allowed, pointers to data                     │
-│ 4. Composite Index = Multi-column, order matters (left-to-right)            │
-│ 5. Use EXPLAIN to verify index usage                                        │
-│ 6. Index columns in WHERE, JOIN, ORDER BY                                   │
-│ 7. Avoid over-indexing (slows writes)                                       │
-│ 8. High selectivity = Good index candidate                                  │
-└─────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                    STORAGE HIERARCHY                             │
+├─────────────────────────────────────────────────────────────────┤
+│ Logical View (User)                                              │
+│ ↓                                                                │
+│ Tables with rows and columns                                    │
+│ ↓                                                                │
+│ Physical View (DBMS)                                             │
+│ ↓                                                                │
+│ Data Pages (8KB) with offset arrays                              │
+│ ↓                                                                │
+│ Data Blocks (4KB) on disk                                        │
+│ ↓                                                                │
+│ Disk Storage                                                     │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│                    INDEXING MECHANISM                            │
+├─────────────────────────────────────────────────────────────────┤
+│ 1. B+ Tree navigates to correct data page (O(log n))            │
+│ 2. Offset array maps logical to physical row order              │
+│ 3. Clustered index: Determines physical row order               │
+│ 4. Non-clustered: Separate B+ Tree with pointers                │
+│ 5. Each index adds storage and update overhead                  │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│                    KEY TAKEAWAYS                                 │
+├─────────────────────────────────────────────────────────────────┤
+│ • Index reduces search from O(n) to O(log n)                    │
+│ • Data pages = 8KB with header, data, offset array              │
+│ • Offset array enables logical ordering                         │
+│ • Clustered index: Physical row order (1 per table)             │
+│ • Non-clustered: Separate B+ Tree (multiple allowed)            │
+│ • Index sparingly: 3-5 per table is optimal                     │
+│ • Monitor storage and update overhead                           │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-**Estimated Reading Time**: 30-35 minutes  
-**Next Chapter**: [Chapter 6: Transactions & Concurrency](../Chapter-6-Transactions-Concurrency/)
+**Estimated Reading Time**: 40-45 minutes  
+**Mastery Level**: Ready for senior database internals interviews
 
-*[← Back to Chapter 4: Advanced Relationships](../Chapter-4-Advanced-Relationships/)*
+*[← Back to Chapter 4: Advanced Relationships](../Chapter-4-Advanced-Relationships/) | [Continue to Chapter 6: Transactions & Concurrency →](../Chapter-6-Transactions-Concurrency/)*
