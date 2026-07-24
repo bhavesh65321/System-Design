@@ -1,0 +1,19 @@
+Database-Design/Module-2-Relational-Database-Design/Chapter-8-Production-Design-Review/README.md
+  s_cef9746d173eb7::t_d37bffdd76d8ed 1-581
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "c7937bc62916ed8610b63560d079fc3119b4cff0",
+  "prompts": {},
+  "sessions": {
+    "s_cef9746d173eb7": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "fbc2c9ae-53e4-4bee-a699-9313abfddefa",
+        "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+      },
+      "human_author": "sobhavesh <bhavesh.soni@coupa.com>"
+    }
+  }
+}
